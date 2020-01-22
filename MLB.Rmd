@@ -1,0 +1,144 @@
+---
+title: "Major League Baseball"
+author: "Paritosh Kalla"
+date: "1/21/2020"
+output: html_document
+---
+```{r}
+library(tidyverse)
+library(ggthemes)
+library(corrplot)
+library(GGally)
+library(DT)
+library(caret)
+```
+
+```{r}
+df_pitch = read_csv('pitching_stats.csv')
+df_bat = read_csv('batting_stats.csv')
+```
+
+```{r}
+head(df_bat)
+```
+```{r}
+head(df_pitch)
+```
+
+```{r}
+df = merge(df_pitch, df_bat, by = c('year','team'))
+```
+
+Scaling the Dataset
+
+```{r}
+df = scale(df[-c(1,2)])
+```
+
+```{r}
+df_scaled = as.data.frame(df)
+```
+
+Adding back columns
+```{r}
+df_scaled$team = df_bat$team
+df_scaled$year = df_bat$year
+df_scaled$playoffs = sample(0:1, size = nrow(df_scaled), replace = TRUE)
+```
+
+Checking for Collinearity among the variables
+
+```{r}
+#Dropping dependent variable for calculating Multicollinearity
+data_a = subset(df_scaled, select = -c(year,team,playoffs))
+
+#Identifying numeric variables
+numericData <- data_a[sapply(data_a, is.numeric)]
+
+#Calculating Correlation
+descrCor <- cor(numericData)
+
+# Print correlation matrix and look at max correlation
+print(descrCor)
+
+# Visualize Correlation Matrix
+corrplot(descrCor, order = "FPC", method = "color", type = "lower", tl.cex = 0.7, tl.col = rgb(0, 0, 0))
+```
+
+```{r}
+# Checking Variables that are highly correlated
+highlyCorrelated = findCorrelation(descrCor, cutoff=0.7)
+
+#Identifying Variable Names of Highly Correlated Variables
+highlyCorCol = colnames(numericData)[highlyCorrelated]
+
+#Print highly correlated attributes
+highlyCorCol
+```
+
+```{r}
+#Remove highly correlated variables and create a new dataset
+df_final = df_scaled[, -which(colnames(df_scaled) %in% highlyCorCol)]
+dim(df_final)
+```
+
+Splitting the dataset
+```{r}
+library(caTools)
+set.seed(123)
+split = sample.split(df_final$playoffs, SplitRatio = 0.75)
+training_set = subset(df_final, split == TRUE)
+test_set = subset(df_final, split == FALSE)
+```
+
+```{r}
+training_set$team = NULL
+training_set$year = NULL
+test_set$team = NULL
+test_set$year = NULL
+```
+
+Applying Logistics Regression
+
+```{r}
+classifier = glm(formula = playoffs ~ .,
+                 family = binomial,
+                 data = training_set)
+```
+
+Predicting the test set values
+```{r}
+# Predicting the Test set results
+prob_pred = predict(classifier, type = 'response', newdata = test_set[-18])
+y_pred = ifelse(prob_pred > 0.5, 1, 0)
+```
+
+```{r}
+# Density of probabilities
+ggplot(data.frame(y_pred) , aes(y_pred)) + 
+        geom_density(fill = 'lightblue' , alpha = 0.4) +
+        labs(x = 'Predicted Probabilities on test set')
+```
+
+Making a Confusion Matrix
+
+```{r}
+# Making the Confusion Matrix
+cm = table(test_set[, 18], y_pred > 0.5)
+cm
+```
+
+```{r}
+library(pROC)
+
+# Area Under Curve
+auc(roc(test_set$playoffs , y_pred))
+```
+
+```{r}
+plot.roc(test_set$playoffs , y_pred , main = "Confidence interval of a threshold" , percent = TRUE , 
+         ci = TRUE , of = "thresholds" , thresholds = "best" , print.thres = "best" , col = 'blue')
+```
+
+
+
